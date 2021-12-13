@@ -5,41 +5,7 @@ import { moralisAPIConfig } from "../config/moralisAPI";
 const Web3 = require("web3");
 const web3 = new Web3(Web3.givenProvider);
 
-// async function ayush() {
-//   let kamboj = await web3.eth.abi.decodeLog(
-//     // Event Parameter from Smart Contract (First Paramerter)
-//     [
-//       {
-//         type: "address",
-//         name: "from",
-//         indexed: true,
-//       },
-//       {
-//         type: "address",
-//         name: "to",
-//         indexed: true,
-//       },
-//       {
-//         type: "uint",
-//         name: "value",
-//       },
-//     ],
-//     // Second parameter is the data in the logs of the transaction
-//     "0x0000000000000000000000000000000000000000000000000de0b6b3a7640000",
-//     // Third parameter contains all topics except topic 0
-//     [
-//       "0x000000000000000000000000bd39f80e400ed14a341dc2e6ec182ebbabf38662",
-//       "0x000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
-//     ]
-//   );
-
-//   console.log(kamboj);
-// }
-
-// ayush();
-
 // Array contains transaction Logs
-
 let transactionLogsArray: any[] = [];
 
 // Counter to put transaction hash one by one in api end point to fetch logs
@@ -48,12 +14,79 @@ let counterForMakingAsyncFetching = 0;
 // Default limit of logs
 let defaultLimit = 20;
 
+// Array which contains decoded Log data
+let decodedLogData: any = [];
+
+// Function to decode log data
+async function decodingLogData(dataToBeDecoded: any, topic1: any, topic2: any) {
+  let decodedData = await web3.eth.abi.decodeLog(
+    // Event Parameter from Smart Contract (First Paramerter)
+    [
+      {
+        type: "address",
+        name: "sender",
+        indexed: true,
+      },
+      {
+        type: "uint",
+        name: "amount0In",
+      },
+      {
+        type: "uint",
+        name: "amount1In",
+      },
+      {
+        type: "uint",
+        name: "amount0Out",
+      },
+      {
+        type: "uint",
+        name: "amount1Out",
+      },
+      {
+        type: "address",
+        name: "to",
+        indexed: true,
+      },
+    ],
+    // Second parameter is the data in the logs of the transaction
+    `${dataToBeDecoded}`,
+
+    // Third parameter contains all topics except topic 0
+    [`${topic1}`, `${topic2}`]
+  );
+  decodedLogData.push(decodedData);
+}
+
+// decodingLogData(
+//   "0x00000000000000000000000000000000000000000000096905557363c5c3741100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008c4d90095d9c00",
+//   "0x0000000000000000000000007a250d5630b4cf539739df2c5dacb4c659f2488d",
+//   "0x0000000000000000000000007a250d5630b4cf539739df2c5dacb4c659f2488d"
+// );
+
 // Function to fetch transaction logs and pushing that data into array
 async function transactionsLogsUsingHash(singleTransactionHash: any) {
   await axios(
     `https://deep-index.moralis.io/api/v2/transaction/${singleTransactionHash}?chain=eth`,
     moralisAPIConfig
-  ).then((response) => transactionLogsArray.push(response.data.logs));
+  ).then(
+    (response) =>
+      response.data.logs.map(async (singleLog: any) => {
+        // Checking if any topic of a log have 0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822 one, then only we push it to the array
+        if (
+          singleLog.topic0 ===
+            "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822" ||
+          singleLog.topic1 ===
+            "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822" ||
+          singleLog.topic2 ===
+            "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822"
+        ) {
+          await transactionLogsArray.push(singleLog);
+          console.log("Pushed");
+        }
+      })
+    // transactionLogsArray.push(response.data.logs)
+  );
 }
 
 // End Point to find the ERC-20 Token transactions
@@ -72,7 +105,7 @@ router.get("/:address/:exchange", async (req: Request, res: Response) => {
     .then((data) => data.data.result)
     .then(async (singleTransaction) => {
       // Adding interval (100 ms) to avoid 429 status error
-      let interval = setInterval(() => {
+      let interval = setInterval(async () => {
         if (counterForMakingAsyncFetching < (limit || defaultLimit)) {
           transactionsLogsUsingHash(
             singleTransaction[counterForMakingAsyncFetching].transaction_hash
@@ -80,7 +113,14 @@ router.get("/:address/:exchange", async (req: Request, res: Response) => {
           counterForMakingAsyncFetching++;
         } else {
           clearInterval(interval);
-          res.send(transactionLogsArray);
+          await transactionLogsArray.map((singleLog: any) => {
+            decodingLogData(singleLog.data, singleLog.topic1, singleLog.topic2);
+            // console.log(decodedLogData);
+          });
+          res.send(decodedLogData);
+          decodedLogData = [];
+          // res.send(`Data is fetched ${transactionLogsArray.length}`);
+          // res.send(transactionLogsArray);
         }
       }, 200);
     });

@@ -12,7 +12,7 @@ let transactionLogsArray: any[] = [];
 let counterForMakingAsyncFetching = 0;
 
 // Default limit of logs
-let defaultLimit = 20;
+let defaultLimit = 100;
 
 // Array which contains decoded Log data
 let decodedLogData: any = [];
@@ -99,30 +99,32 @@ router.get("/:address/:exchange", async (req: Request, res: Response) => {
 
   // Getting Token data by using token address
   await axios(
-    `https://deep-index.moralis.io/api/v2/${tokenAddress}/erc20/transfers?chain=${tokenExchange}`,
+    `https://deep-index.moralis.io/api/v2/${tokenAddress}/erc20/transfers?chain=${tokenExchange}&limit=${
+      limit || defaultLimit
+    }`,
     moralisAPIConfig
   )
     .then((data) => data.data.result)
-    .then(async (singleTransaction) => {
+    .then(async (transactions) => {
       // Adding interval (100 ms) to avoid 429 status error
+
       let interval = setInterval(async () => {
         if (counterForMakingAsyncFetching < (limit || defaultLimit)) {
           transactionsLogsUsingHash(
-            singleTransaction[counterForMakingAsyncFetching].transaction_hash
+            transactions[counterForMakingAsyncFetching].transaction_hash
           );
           counterForMakingAsyncFetching++;
         } else {
           clearInterval(interval);
+          counterForMakingAsyncFetching = 0;
           await transactionLogsArray.map((singleLog: any) => {
             decodingLogData(singleLog.data, singleLog.topic1, singleLog.topic2);
-            // console.log(decodedLogData);
           });
           res.send(decodedLogData);
           decodedLogData = [];
-          // res.send(`Data is fetched ${transactionLogsArray.length}`);
-          // res.send(transactionLogsArray);
+          transactionLogsArray = [];
         }
-      }, 200);
+      }, 100);
     });
 });
 
